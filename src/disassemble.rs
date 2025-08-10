@@ -1,4 +1,7 @@
 mod aarch64_disassembler;
+use std::fmt::Write;
+use std::sync::{Arc, Mutex};
+
 use aarch64_disassembler::*;
 
 use crate::decode_byte::*;
@@ -33,23 +36,25 @@ pub struct ElfHeader {
     section_header_entry_size: u16,
     section_header_entry_count: u16,
     section_header_names_index: u16,
+    output_string: Arc<Mutex<String>>,
 }
 
 impl ElfHeader {
-    pub fn new(bytes: &[u8]) -> Option<ElfHeader> {
+    pub fn new(bytes: &[u8], output_string: Arc<Mutex<String>>) -> Option<ElfHeader> {
         if bytes.len() < 64 {
+            let _ = writeln!(output_string.lock().unwrap(), "invalid header");
             return Option::None;
         }
 
         let header_info = &bytes[0..64];
 
         if header_info[0] != ELF_MAGIC_NUMBER {
-            println!("invalid header");
+            let _ = writeln!(output_string.lock().unwrap(), "invalid header");
             return Option::None;
         }
 
         if header_info[1..4] != ELF_IDENTITY.to_owned().into_bytes() {
-            println!("invalid header");
+            let _ = writeln!(output_string.lock().unwrap(), "invalid header");
             return Option::None;
         }
 
@@ -60,7 +65,10 @@ impl ElfHeader {
         };
 
         if matches!(format, BitFormat::Bit32) {
-            println!("currently unsupported on 32 bit systems");
+            let _ = writeln!(
+                output_string.lock().unwrap(),
+                "currently unsupported on 32 bit systems"
+            );
             return Option::None;
         }
 
@@ -77,7 +85,12 @@ impl ElfHeader {
         };
 
         if matches!(abi, OSAbi::Unsupported) {
-            println!("unsupported abi {:02X}", header_info[7]);
+            let _ = writeln!(
+                output_string.lock().unwrap(),
+                "unsupported abi {:02X}",
+                header_info[7]
+            );
+
             return Option::None;
         }
 
@@ -88,7 +101,11 @@ impl ElfHeader {
         };
 
         if matches!(instruction_set, InstructionSet::Unsupported) {
-            println!("unsupported instruction set {:04X}", value);
+            let _ = writeln!(
+                output_string.lock().unwrap(),
+                "unsupported instruction set {:04X}",
+                value
+            );
             return Option::None;
         }
 
@@ -107,9 +124,8 @@ impl ElfHeader {
             section_header_entry_size,
             section_header_entry_count,
             section_header_names_index,
+            output_string,
         };
-
-        header.dump_disassembly();
 
         Some(header)
     }
@@ -164,7 +180,7 @@ impl ElfHeader {
             return;
         }
 
-        println!("section {name}");
+        let _ = writeln!(self.output_string.lock().unwrap(), "section {name}");
 
         let section_offset = get_value::<u64>(
             self.endianness,
@@ -177,7 +193,10 @@ impl ElfHeader {
         ) as usize;
 
         if matches!(self.instruction_set, InstructionSet::Arm64) {
-            print_aarch64_disassembly(&self.data[section_offset..section_offset + section_size]);
+            print_aarch64_disassembly(
+                &self.data[section_offset..section_offset + section_size],
+                self.output_string.clone(),
+            );
         }
     }
 

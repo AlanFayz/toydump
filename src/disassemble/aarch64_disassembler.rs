@@ -1,3 +1,6 @@
+use std::fmt::Write;
+use std::sync::{Arc, Mutex};
+
 use crate::decode_byte::*;
 
 const ARM64_INSTRUCTION_SIZE: usize = 4;
@@ -152,11 +155,11 @@ fn decode_aarch64_data_processing_register(instruction: u32) -> String {
     String::from("data_processing_register")
 }
 
-fn decode_aarch64_sme(instruction: u32) -> String {
+fn decode_aarch64_sme(_instruction: u32) -> String {
     String::from("sme")
 }
 
-fn decode_aarch64_sve(instruction: u32) -> String {
+fn decode_aarch64_sve(_instruction: u32) -> String {
     String::from("sve")
 }
 
@@ -228,7 +231,7 @@ fn decode_aarch64_instruction(instruction: &[u8]) -> String {
     String::from("instruction")
 }
 
-pub fn print_aarch64_disassembly(bytes: &[u8]) {
+pub fn print_aarch64_disassembly(bytes: &[u8], output_string: Arc<Mutex<String>>) {
     let str = bytes
         .chunks_exact(ARM64_INSTRUCTION_SIZE)
         .map(|instruction| {
@@ -241,5 +244,5 @@ pub fn print_aarch64_disassembly(bytes: &[u8]) {
         .map(|(i, s)| format!("{:<5}          0x{:08X}          {}\n", i, s.1, s.0))
         .collect::<String>();
 
-    println!("{}", str);
+    writeln!(output_string.lock().unwrap(), "{str}");
 }

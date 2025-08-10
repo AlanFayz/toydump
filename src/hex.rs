@@ -1,6 +1,8 @@
 use colored::*;
+use std::fmt::Write;
 use std::fs::File;
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 use crate::disassemble::*;
 
@@ -8,13 +10,24 @@ pub struct Session {
     data: Vec<u8>,
     column_count: usize,
     group_count: usize,
+    output_string: Arc<Mutex<String>>,
+    use_color: bool,
 }
 
 impl Session {
-    pub fn new(filename: &str, column_count: usize, group_count: usize) -> Option<Session> {
+    pub fn new(
+        filename: &str,
+        column_count: usize,
+        group_count: usize,
+        output_string: Arc<Mutex<String>>,
+        use_color: bool,
+    ) -> Option<Session> {
         let file = File::open(filename);
 
         if file.is_err() {
+            let mut s = output_string.lock().unwrap();
+            let _ = writeln!(s, "failed to open file {filename}");
+
             return Option::None;
         }
 
@@ -22,16 +35,23 @@ impl Session {
         let result = file.unwrap().read_to_end(&mut data);
 
         if result.is_err() {
+            let mut s = output_string.lock().unwrap();
+            let _ = writeln!(s, "failed to read file {filename}");
+
             return Option::None;
         }
-
-        let header = ElfHeader::new(&data)?;
 
         Some(Session {
             data,
             column_count,
             group_count,
+            output_string,
+            use_color,
         })
+    }
+
+    pub fn elf_header(&self) -> Option<ElfHeader> {
+        ElfHeader::new(&self.data, self.output_string.clone())
     }
 
     fn format_byte(&self, mut index: usize, byte: &u8) -> String {
@@ -43,7 +63,7 @@ impl Session {
             format!("{:02X}", byte)
         };
 
-        if byte.is_ascii_graphic() {
+        if byte.is_ascii_graphic() && self.use_color {
             return format_str.green().to_string();
         }
 
@@ -61,7 +81,7 @@ impl Session {
         let str_stream = bytes
             .iter()
             .map(|byte| {
-                if byte.is_ascii_graphic() {
+                if byte.is_ascii_graphic() && self.use_color {
                     return (*byte as char).to_string().green().to_string();
                 }
 
@@ -82,7 +102,11 @@ impl Session {
             sep += "-";
         }
 
-        sep.magenta().to_string()
+        if self.use_color {
+            return sep.magenta().to_string();
+        }
+
+        sep
     }
 
     pub fn dump(&self) {
@@ -93,7 +117,7 @@ impl Session {
             .map(|(i, chunk)| self.format_hex_line(chunk, i))
             .collect::<String>();
 
-        println!("{}", contents);
+        let _ = writeln!(self.output_string.lock().unwrap(), "{}", contents);
     }
 
     pub fn list_occurrences(&self, bytes: &[u8]) {
@@ -126,7 +150,7 @@ impl Session {
             .map(|s| format!("{}\n{}", sep, s))
             .collect::<String>();
 
-        println!("{}", occurrences);
+        let _ = writeln!(self.output_string.lock().unwrap(), "{}", occurrences);
     }
 
     pub fn list_occurrences_string(&self, s: &str) {
