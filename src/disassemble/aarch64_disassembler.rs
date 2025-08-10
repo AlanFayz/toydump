@@ -122,15 +122,71 @@ fn decode_aarch64_data_processing_immediate(instruction: u32) -> String {
         return decode_aarch64_data_processing_immediate_add_sub(instruction);
     }
 
-    String::from("unimplemented")
+    String::from("data_processing_immediate")
+}
+
+fn decode_aarch64_data_processing_register_extended_add_sub(instruction: u32) -> String {
+    {
+        let _sf = instruction >> 31;
+        let _op = (instruction >> 30) & 1;
+        let _s = (instruction >> 29) & 1;
+        let _opt = (instruction >> 22) & 0x3;
+        let _rm = (instruction >> 16) & 0x1F;
+    }
+
+    String::from("data_processing_register_extended_add_sub")
+}
+
+fn decode_aarch64_data_processing_register(instruction: u32) -> String {
+    let _op0 = (instruction >> 30) & 1;
+    let op1 = (instruction >> 28) & 1;
+    let op2 = (instruction >> 21) & 0xF;
+    let _op3 = (instruction >> 10) & 0x3F;
+
+    if op1 == 0 {
+        if (op2 & 0xF) == op2 {
+            return decode_aarch64_data_processing_register_extended_add_sub(instruction);
+        }
+    }
+
+    String::from("data_processing_register")
 }
 
 fn decode_aarch64_sme(instruction: u32) -> String {
-    String::from("sme not implemented")
+    String::from("sme")
 }
 
 fn decode_aarch64_sve(instruction: u32) -> String {
-    String::from("sve not implemented")
+    String::from("sve")
+}
+
+fn decode_aarch64_load_store_load_register_literal(instruction: u32) -> String {
+    let opc = instruction >> 30;
+    let vr = (instruction >> 26) & 1;
+    let imm19 = (instruction >> 5) & 0x7FFFF;
+    let rd = instruction & 0x1F;
+
+    if opc == 0 && vr == 0 {
+        return format_instruction_rd_imm("ldr", false, rd, imm19);
+    }
+
+    if opc == 1 && vr == 0 {
+        return format_instruction_rd_imm("ldr", true, rd, imm19);
+    }
+
+    String::from("load_store_load_register_literal")
+}
+
+fn decode_aarch64_load_store(instruction: u32) -> String {
+    let op0 = instruction >> 28;
+    let _op1 = (instruction >> 26) & 1;
+    let op2 = (instruction >> 10) & 0x7FFF;
+
+    if op0 & 0b1101 == op0 && op2 & 0x3FFF == op2 {
+        return decode_aarch64_load_store_load_register_literal(instruction);
+    }
+
+    String::from("load_store")
 }
 
 fn decode_aarch64_instruction(instruction: &[u8]) -> String {
@@ -161,7 +217,15 @@ fn decode_aarch64_instruction(instruction: &[u8]) -> String {
         return decode_aarch64_data_processing_immediate(instruction);
     }
 
-    String::from("unimplemented")
+    if op1 & 0b1101 == op1 {
+        return decode_aarch64_data_processing_register(instruction);
+    }
+
+    if op1 & 0b1110 == op1 {
+        return decode_aarch64_load_store(instruction);
+    }
+
+    String::from("instruction")
 }
 
 pub fn print_aarch64_disassembly(bytes: &[u8]) {
