@@ -94,10 +94,10 @@ fn main() {
         if let Some(editor) = args.editor.as_ref() {
             let status = Command::new(editor)
                 .arg(&output_filepath)
-                .stdin(std::process::Stdio::inherit()) // Pass terminal input to vim
-                .stdout(std::process::Stdio::inherit()) // Pass terminal output from vim
-                .stderr(std::process::Stdio::inherit()) // Pass error output from vim
-                .status() // Wait for it to finish
+                .stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
                 .expect("failed to run editor");
 
             println!("Editor exited with status: {}", status);
