@@ -67,6 +67,10 @@ impl Session {
             return format_str.green().to_string();
         }
 
+        if *byte != 0 && self.use_color {
+            return format_str.red().to_string();
+        }
+
         format_str
     }
 
@@ -83,6 +87,10 @@ impl Session {
             .map(|byte| {
                 if byte.is_ascii_graphic() && self.use_color {
                     return (*byte as char).to_string().green().to_string();
+                }
+
+                if *byte != 0 && self.use_color {
+                    return ".".to_string().red().to_string();
                 }
 
                 return ".".to_owned();

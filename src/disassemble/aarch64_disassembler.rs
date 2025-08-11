@@ -6,48 +6,66 @@ use crate::decode_byte::*;
 const ARM64_INSTRUCTION_SIZE: usize = 4;
 const ARM64_INSTRUCTION_ENDIAN: Endianness = Endianness::LittleEndian;
 
-fn format_instruction_rd_imm(name: &str, s: bool, rd: u32, imm: u32) -> String {
-    if s {
-        format!("{} {:>2}, #{}", name, format!("w{}", rd), imm)
-    } else {
-        format!("{} {:>2}, #{}", name, format!("x{}", rd), imm)
-    }
+fn does_bit_pattern_match(pattern: &str, number: u32) -> bool {
+    let mask = pattern
+        .chars()
+        .rev()
+        .enumerate()
+        .fold(0_u32, |curr, (i, c)| match c {
+            '1' => curr | (1 << i),
+            '0' => curr | (1 << i),
+            'x' => curr,
+            _ => panic!("invalid pattern {pattern}"),
+        });
+
+    let target = pattern
+        .chars()
+        .rev()
+        .enumerate()
+        .fold(0_u32, |curr, (i, c)| match c {
+            '1' => curr | (1 << i),
+            '0' => curr,
+            'x' => curr,
+            _ => panic!("invalid pattern {pattern}"),
+        });
+
+    (number & mask) == target
 }
 
-fn format_instruction_rd_rn_imm(name: &str, s: bool, rd: u32, rn: u32, imm: u32) -> String {
-    if s {
-        format!(
-            "{} {:>2}, {}, #{}",
-            name,
-            if rd < 31 {
-                format!("w{}", rd)
-            } else {
-                "sp".to_owned()
-            },
-            if rn < 31 {
-                format!("w{}", rn)
-            } else {
-                "sp".to_owned()
-            },
-            imm
-        )
-    } else {
-        format!(
-            "{} {:>2}, {}, #{}",
-            name,
-            if rd < 31 {
-                format!("x{}", rd)
-            } else {
-                "sp".to_owned()
-            },
-            if rn < 31 {
-                format!("x{}", rn)
-            } else {
-                "sp".to_owned()
-            },
-            imm
-        )
+fn format_register(is_w: bool, r: u32) -> String {
+    if r == 31 {
+        return "sp".to_string();
     }
+
+    if is_w {
+        return format!("w{}", r);
+    }
+
+    return format!("x{}", r);
+}
+
+fn format_instruction_rd_imm(name: &str, is_w: bool, rd: u32, imm: u32) -> String {
+    format!("{} {:>2}, #{}", name, format_register(is_w, rd), imm)
+}
+
+fn format_instruction_rd_rn_imm(name: &str, is_w: bool, rd: u32, rn: u32, imm: u32) -> String {
+    format!(
+        "{} {:>2}, {}, #{}",
+        name,
+        format_register(is_w, rd),
+        format_register(is_w, rn),
+        imm
+    )
+}
+
+fn format_instruction_rd_rn_imm_offset(name: &str, s: bool, rd: u32, rn: u32, imm: u32) -> String {
+    format!(
+        "{} {:>2}, [{}, #{}]",
+        name,
+        format_register(s, rd),
+        format_register(s, rn),
+        imm
+    )
 }
 
 fn decode_aarch64_data_processing_one_source(instruction: u32) -> String {
@@ -94,34 +112,35 @@ fn decode_aarch64_data_processing_immediate_add_sub(instruction: u32) -> String 
     let rn = (instruction >> 5) & 0x1F;
     let imm12 = (instruction >> 10) & 0xFFF;
 
-    if op == 0 {
-        if s == 1 {
-            return format_instruction_rd_rn_imm("adds", s == 1, rd, rn, imm12);
-        } else {
-            return format_instruction_rd_rn_imm("add", s == 1, rd, rn, imm12);
-        }
-    }
+    let inst_name = match op {
+        0 => "add",
+        _ => "sub",
+    };
 
-    if s == 1 {
-        return format_instruction_rd_rn_imm("subs", s == 1, rd, rn, imm12);
-    } else {
-        return format_instruction_rd_rn_imm("sub", s == 1, rd, rn, imm12);
-    }
+    let update_flags = if s == 1 { "s" } else { "" };
+
+    format_instruction_rd_rn_imm(
+        format!("{inst_name}{update_flags}").as_str(),
+        s == 1,
+        rd,
+        rn,
+        imm12,
+    )
 }
 
 fn decode_aarch64_data_processing_immediate(instruction: u32) -> String {
     let op0 = (instruction >> 29) & 0x3;
     let op1 = (instruction >> 22) & 0xF;
 
-    if op0 == 0x3 && (op1 & 0xF) == op1 {
+    if op0 == 0x3 && does_bit_pattern_match("111x", op1) {
         return decode_aarch64_data_processing_one_source(instruction);
     }
 
-    if op1 & 0b0011 == op1 {
+    if does_bit_pattern_match("00xx", op1) {
         return decode_aarch64_data_processing_immediate_pc_rel_addressing(instruction);
     }
 
-    if op1 & 0b0101 == op1 {
+    if does_bit_pattern_match("010x", op1) {
         return decode_aarch64_data_processing_immediate_add_sub(instruction);
     }
 
@@ -140,6 +159,10 @@ fn decode_aarch64_data_processing_register_extended_add_sub(instruction: u32) ->
     String::from("data_processing_register_extended_add_sub")
 }
 
+fn decode_aarch64_data_processing_register_three_source(instruction: u32) -> String {
+    String::from("data_processing_register_three_source")
+}
+
 fn decode_aarch64_data_processing_register(instruction: u32) -> String {
     let _op0 = (instruction >> 30) & 1;
     let op1 = (instruction >> 28) & 1;
@@ -147,8 +170,14 @@ fn decode_aarch64_data_processing_register(instruction: u32) -> String {
     let _op3 = (instruction >> 10) & 0x3F;
 
     if op1 == 0 {
-        if (op2 & 0xF) == op2 {
+        if does_bit_pattern_match("1xx1", op2) {
             return decode_aarch64_data_processing_register_extended_add_sub(instruction);
+        }
+    }
+
+    if op1 == 1 {
+        if does_bit_pattern_match("1xxx", op2) {
+            return decode_aarch64_data_processing_register_three_source(instruction);
         }
     }
 
@@ -169,15 +198,38 @@ fn decode_aarch64_load_store_load_register_literal(instruction: u32) -> String {
     let imm19 = (instruction >> 5) & 0x7FFFF;
     let rd = instruction & 0x1F;
 
-    if opc == 0 && vr == 0 {
-        return format_instruction_rd_imm("ldr", false, rd, imm19);
-    }
-
-    if opc == 1 && vr == 0 {
-        return format_instruction_rd_imm("ldr", true, rd, imm19);
-    }
-
     String::from("load_store_load_register_literal")
+}
+
+fn decode_aarch64_load_store_register_unsigned_immediate(instruction: u32) -> String {
+    let size = instruction >> 30;
+    let v = (instruction >> 26) & 1;
+    let opc = (instruction >> 22) & 0x3;
+    let imm12 = (instruction >> 10) & 0xFFF;
+    let rn = (instruction >> 5) & 0x1F;
+    let rd = instruction & 0x1F;
+
+    if v != 0 {
+        return String::from("vectorized_load_store_register_unsigned_immediate");
+    }
+
+    let inst_name = match opc {
+        0 => "str",
+        1 => "ldr",
+        _ => "unknown",
+    };
+
+    let scale = match size {
+        0 => 1,
+        1 => 2,
+        2 => 4,
+        3 => 8,
+        _ => 1,
+    };
+
+    let use_w_register = size == 2;
+
+    format_instruction_rd_rn_imm_offset(inst_name, use_w_register, rd, rn, imm12 * scale)
 }
 
 fn decode_aarch64_load_store(instruction: u32) -> String {
@@ -185,8 +237,16 @@ fn decode_aarch64_load_store(instruction: u32) -> String {
     let _op1 = (instruction >> 26) & 1;
     let op2 = (instruction >> 10) & 0x7FFF;
 
-    if op0 & 0b1101 == op0 && op2 & 0x3FFF == op2 {
+    if does_bit_pattern_match("xx01", op0)
+        && does_bit_pattern_match(format!("0{}", "x".repeat(14)).as_str(), op2)
+    {
         return decode_aarch64_load_store_load_register_literal(instruction);
+    }
+
+    if does_bit_pattern_match("xx11", op0)
+        && does_bit_pattern_match(format!("1{}", "x".repeat(14)).as_str(), op2)
+    {
+        return decode_aarch64_load_store_register_unsigned_immediate(instruction);
     }
 
     String::from("load_store")
@@ -212,19 +272,19 @@ fn decode_aarch64_instruction(instruction: &[u8]) -> String {
         return decode_aarch64_sve(instruction);
     }
 
-    if op1 & 0b0011 == op1 {
+    if does_bit_pattern_match("00x1", op1) {
         return String::from("unallocated");
     }
 
-    if op1 & 0b1001 == op1 {
+    if does_bit_pattern_match("100x", op1) {
         return decode_aarch64_data_processing_immediate(instruction);
     }
 
-    if op1 & 0b1101 == op1 {
+    if does_bit_pattern_match("x101", op1) {
         return decode_aarch64_data_processing_register(instruction);
     }
 
-    if op1 & 0b1110 == op1 {
+    if does_bit_pattern_match("x1x0", op1) {
         return decode_aarch64_load_store(instruction);
     }
 
