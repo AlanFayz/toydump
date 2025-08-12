@@ -121,7 +121,7 @@ fn decode_aarch64_data_processing_immediate_add_sub(instruction: u32) -> String 
 
     format_instruction_rd_rn_imm(
         format!("{inst_name}{update_flags}").as_str(),
-        s == 1,
+        sf == 0,
         rd,
         rn,
         imm12,
@@ -227,8 +227,7 @@ fn decode_aarch64_load_store_register_unsigned_immediate(instruction: u32) -> St
         _ => 1,
     };
 
-    let use_w_register = size == 2;
-
+    let use_w_register = size != 3;
     format_instruction_rd_rn_imm_offset(inst_name, use_w_register, rd, rn, imm12 * scale)
 }
 
